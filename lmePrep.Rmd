@@ -1,0 +1,152 @@
+---
+title: "Data prep"
+output: html_notebook
+---
+
+```{r Packages}
+if (!('plyr'   %in% installed.packages()[,"Package"])) install.packages('plyr')
+if (!('dplyr'   %in% installed.packages()[,"Package"])) install.packages('dplyr')
+if (!('EMAtools' %in% installed.packages()[,"Package"])) install.packages('EMAtools')  #lme.dscore
+if (!('naniar'   %in% installed.packages()[,"Package"])) install.packages('naniar')    #replace values 
+if (!('jtools'   %in% installed.packages()[,"Package"])) install.packages('jtools')
+if (!('ggplot2'  %in% installed.packages()[,"Package"])) install.packages('ggplot2')
+if (!('tidyverse'   %in% installed.packages()[,"Package"])) install.packages('tidyverse') #organize data in long format (for heatmaps)
+
+if(!"plyr" %in% .packages())   library(plyr)
+if(!"EMAtools" %in% .packages()) library(EMAtools)
+if(!"naniar" %in% .packages())   library(naniar)
+if(!"jtools" %in% .packages())   library(jtools)
+if(!"ggplot2" %in% .packages())  library(ggplot2)
+if(!"tidyverse" %in% .packages())   library(tidyverse)   # transform dataframe from wide to long format
+```
+
+```{r Packages 2}
+#install packages 
+if (!('lme4'     %in% installed.packages()[,"Package"])) install.packages('lme4')
+if (!('EMAtools' %in% installed.packages()[,"Package"])) install.packages('EMAtools')  #lme.dscore
+if (!('naniar'   %in% installed.packages()[,"Package"])) install.packages('naniar')    #replace values 
+if (!('jtools'   %in% installed.packages()[,"Package"])) install.packages('jtools')
+if (!('ggplot2'  %in% installed.packages()[,"Package"])) install.packages('ggplot2')
+if (!('sjPlot'   %in% installed.packages()[,"Package"])) install.packages('sjPlot')
+if (!('effects'  %in% installed.packages()[,"Package"])) install.packages('effects')
+if (!('lmerTest' %in% installed.packages()[,"Package"])) install.packages('lmerTest')
+if (!('tidyverse'   %in% installed.packages()[,"Package"])) install.packages('tidyverse') #organize data in long format (for heatmaps)
+if (!('viridis'   %in% installed.packages()[,"Package"])) install.packages('viridis') #colormap heatmaps
+if(!('glmmTMB'    %in% installed.packages()[,"Package"])) install.packages("glmmTMB", dependencies = TRUE, INSTALL_opts = '--no-lock')
+
+# load libraries
+if(!"lme4" %in% .packages())     library(lme4)
+if(!"EMAtools" %in% .packages()) library(EMAtools)
+if(!"naniar" %in% .packages())   library(naniar)
+if(!"jtools" %in% .packages())   library(jtools)
+if(!"ggplot2" %in% .packages())  library(ggplot2)
+if(!"sjPlot" %in% .packages())   library(sjPlot)
+if(!"effects" %in% .packages())  library(effects)
+if(!"lmerTest" %in% .packages())  library(lmerTest)      # pvalues models
+if(!"tidyverse" %in% .packages())   library(tidyverse)   # transform dataframe from wide to long format
+if(!"viridis" %in% .packages())   library(viridis)       # colormap heatmaps
+if(!"glmmTMB" %in% .packages())   library(glmmTMB)
+
+```
+
+```{r Set WD and input Data}
+setwd('C:/Users/mmatt/Desktop/Projects/psychopathology-risk/PsyRisk/PsyRiskLME')
+df <- read.csv('ABCD_ParRiskData.csv')
+```
+
+```{r Data Prep}
+#Merge Puberty vars into one
+df$puberty <- ifelse(!is.na(df$pds_p_ss_female_category_2),df$pds_p_ss_female_category_2,df$pds_p_ss_male_category_2)
+table(df$puberty, exclude=NULL)  #263 NAs
+
+#Condense education groupings; 1 = less than GED, 2 = GED, 3 = 2yr degree, 4= BA degree; 5 = Graduate degree
+df$edu <- mapvalues(df$demo_prnt_ed_v2, from = c(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21), 
+                     to = c(1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,3,3,4,5,5,5));
+
+#Age, Puberty and Income as numerical continuous
+df$age <- as.numeric(df$interview_age)
+df$puberty <- as.numeric(df$puberty)
+df$income <-  as.numeric(df$demo_comb_income_v2)
+
+#Standardize
+df[c("age.z","puberty.z","income.z")] <- scale(df[c("age","puberty","income")])
+
+#Make sex 0 1 factor; M = 0
+df <- df %>%
+      mutate(sex = ifelse(sex == "M",0,1))
+```
+
+```{r Standardize sMRI Variables}
+
+#create new df with smri variables and add win prefix to column names 
+smri <- df[grepl("^smri", colnames(df))] 
+colnames(smri) <-paste("win",colnames(smri),sep="_") 
+
+#standardization function
+scale.many <- function(dat, column.nos) {
+  nms <- names(dat)
+  for(col in column.nos) {
+    name <- paste(nms[col],".z", sep = "")
+    dat[name] <- scale(dat[,col])
+  }
+  cat(paste("Scaled ", length(column.nos), " variable(s)\n"))
+  dat
+}
+
+#standardize smri variables
+smri_w <- scale.many(smri, c(1:16))
+
+#keep standarized only
+smri_w <- smri_w[ -c(1:16) ] 
+boxplot(smri_w)
+```
+
+```{r Winsorize}
+df2 <- smri_w
+    
+# Winsorization function
+fun <- function(x){
+    x[ x < -3 ] <- -3
+    x[ x > 3 ] <- 3
+    x
+}
+
+# Apply winsorization 
+df2 <- fun(df2)
+boxplot(df2) #check whether all values are within -3 and +3
+
+# combine dataframes
+dfAll <- cbind(df, df2)
+
+```
+
+
+
+```{r Parental History variables}
+#Easier parental history names; Center
+dfAll$Dep <- round(scale(dfAll$famhx_ss_momdad_dprs_p,scale=FALSE),5)
+dfAll$Man <- round(scale(dfAll$famhx_ss_momdad_ma_p,scale=FALSE),5)
+dfAll$SU <- pmax(dfAll$famhx_ss_momdad_alc_p,dfAll$famhx_ss_momdad_dg_p)
+dfAll$SU <- round(scale(dfAll$SU,scale=FALSE),5)
+dfAll$Anx <- round(scale(dfAll$famhx_ss_momdad_nrv_p,scale=FALSE),5)
+
+#Easier MATERNAL history names; Center
+dfAll$MDep <- round(scale(dfAll$famhx_ss_moth_prob_dprs_p,scale=FALSE),5)
+dfAll$MMan <- round(scale(dfAll$famhx_ss_moth_prob_ma_p,scale=FALSE),5)
+dfAll$MSU <- pmax(dfAll$famhx_ss_moth_prob_alc_p,dfAll$famhx_ss_moth_prob_dg)
+dfAll$MSU <- round(scale(dfAll$MSU,scale=FALSE),5)
+dfAll$MAnx <- round(scale(dfAll$famhx_ss_moth_prob_nrv_p,scale=FALSE),5)
+
+#Easier PATERNAL history names; Center
+dfAll$PDep <- round(scale(dfAll$famhx_ss_fath_prob_dprs_p,scale=FALSE),5)
+dfAll$PMan <- round(scale(dfAll$famhx_ss_fath_prob_ma_p,scale=FALSE),5)
+dfAll$PSU <- pmax(dfAll$famhx_ss_fath_prob_alc_p,dfAll$famhx_ss_fath_prob_dg)
+dfAll$PSU <- round(scale(dfAll$PSU,scale=FALSE),5)
+dfAll$PAnx <- round(scale(dfAll$famhx_ss_fath_prob_nrv_p,scale=FALSE),5)
+```
+
+
+```{r Save Data}
+#Create df
+write.csv(dfAll,'lmeData.csv')
+```

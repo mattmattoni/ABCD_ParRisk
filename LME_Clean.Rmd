@@ -1,0 +1,412 @@
+---
+title: "LME"
+output: html_notebook
+---
+
+```{r Packages}
+if (!('lmerTest'     %in% installed.packages()[,"Package"])) install.packages('lmerTest')
+if (!('tidyr'     %in% installed.packages()[,"Package"])) install.packages('tidyr')
+if (!('tidyverse'     %in% installed.packages()[,"Package"])) install.packages('tidyverse')
+
+
+if(!"lmerTest" %in% .packages())     library(lmerTest)
+if(!"tidyr" %in% .packages())     library(tidyr)
+if(!"tidyverse" %in% .packages())     library(tidyverse)
+```
+
+```{r Packages 2}
+#install packages 
+if (!('lme4'     %in% installed.packages()[,"Package"])) install.packages('lme4')
+if (!('EMAtools' %in% installed.packages()[,"Package"])) install.packages('EMAtools')  #lme.dscore
+if (!('naniar'   %in% installed.packages()[,"Package"])) install.packages('naniar')    #replace values 
+if (!('jtools'   %in% installed.packages()[,"Package"])) install.packages('jtools')
+if (!('ggplot2'  %in% installed.packages()[,"Package"])) install.packages('ggplot2')
+if (!('sjPlot'   %in% installed.packages()[,"Package"])) install.packages('sjPlot')
+if (!('effects'  %in% installed.packages()[,"Package"])) install.packages('effects')
+if (!('lmerTest' %in% installed.packages()[,"Package"])) install.packages('lmerTest')
+if (!('tidyverse'   %in% installed.packages()[,"Package"])) install.packages('tidyverse') #organize data in long format (for heatmaps)
+if (!('viridis'   %in% installed.packages()[,"Package"])) install.packages('viridis') #colormap heatmaps
+if(!('glmmTMB'    %in% installed.packages()[,"Package"])) install.packages("glmmTMB", dependencies = TRUE, INSTALL_opts = '--no-lock')
+
+# load libraries
+if(!"lme4" %in% .packages())     library(lme4)
+if(!"EMAtools" %in% .packages()) library(EMAtools)
+if(!"naniar" %in% .packages())   library(naniar)
+if(!"jtools" %in% .packages())   library(jtools)
+if(!"ggplot2" %in% .packages())  library(ggplot2)
+if(!"sjPlot" %in% .packages())   library(sjPlot)
+if(!"effects" %in% .packages())  library(effects)
+if(!"lmerTest" %in% .packages())  library(lmerTest)      # pvalues models
+if(!"tidyverse" %in% .packages())   library(tidyverse)   # transform dataframe from wide to long format
+if(!"viridis" %in% .packages())   library(viridis)       # colormap heatmaps
+if(!"glmmTMB" %in% .packages())   library(glmmTMB)
+
+# For some reason, installing glmmTMB resulted in an error in terminal: ERROR: failed to lock directory ‘/opt/conda/lib/R/library’ for modifying
+# This solution works: https://stackoverflow.com/questions/14382209/r-install-packages-returns-failed-to-create-lock-directory
+```
+
+```{r Get Data}
+data <- read.csv('lmeData.csv')
+```
+
+```{r wec}
+#wec: https://journal.r-project.org/archive/2017/RJ-2017-017/index.html
+if (!('wec'   %in% installed.packages()[,"Package"])) install.packages('wec')
+if(!"wec" %in% .packages())   library(wec)
+
+#center sex
+data$sex <- scale(data$sex,scale=FALSE)
+
+#Education, sex, race, par history as factor
+data$eduF <- as.factor(data$edu)
+data$raceF <- as.factor(data$race)
+data$sexF <- as.factor(data$sex)
+data$Dep <- as.factor(data$Dep)
+data$Anx <- as.factor(data$Anx)
+data$Man <- as.factor(data$Man)
+data$SU <- as.factor(data$SU)
+
+
+#wec education; GED as comparison
+contrasts(data$eduF) <- contr.wec(data$eduF,2)
+contrasts(data$eduF)
+
+#wec race; White as comparison
+contrasts(data$raceF) <- contr.wec(data$raceF,1)
+contrasts(data$raceF)
+
+#Nested effects
+data$siteF <- as.factor(data$site_id_l)
+data$famF <- as.factor(data$rel_family_id)
+```
+
+
+```{r Depression LME}
+# Define variables
+dVar = colnames(data)[grepl("^win_smri_vol_scs.*.z$", colnames(data)) & !grepl("smri_vol_scs_intracranialv", colnames(data))]
+
+
+dep_iVar <- c("win_smri_vol_scs_intracranialv.z", "age.z", "sexF", "raceF", 
+                    "puberty.z", "eduF","income.z", 
+                    "Dep","(1|siteF/famF)")
+
+no.dVar = length(dVar)
+dep_m <- as.list(1:no.dVar)
+dep_d <- as.list(1:no.dVar)
+dep_ptab <- data.frame(matrix(NA, nrow = 15, ncol = 7))     
+names(dep_m) <- dVar
+names(dep_d) <- dVar
+dep_string_form <- paste0(dVar, "~", paste0(dep_iVar, collapse = " + "))
+
+#for loop
+    for (i in 1:no.dVar) {
+        #print progress
+        print(paste("Running lmer for dependent variable:", dVar[i], "which is", i, "out of", no.dVar))
+        #store models in m
+        dep_m[[i]] <- lmer(dep_string_form[i], data=data, na.action = "na.omit")
+        #cohen's d
+        dep_d[[i]] <- lme.dscore(dep_m[[i]],data=data,type="lme4") #Cohen's d
+        dep_ptab[[i]] <- as.data.frame(summary(dep_m[[i]])$coefficients)
+        dep_ptab[[i]]$sig[dep_ptab[[i]]$`Pr(>|t|)` < 0.1] <- "."
+        dep_ptab[[i]]$sig[dep_ptab[[i]]$`Pr(>|t|)` < 0.05] <- "*"
+        dep_ptab[[i]]$sig[dep_ptab[[i]]$`Pr(>|t|)` < 0.01] <- "**"
+        dep_ptab[[i]]$sig[dep_ptab[[i]]$`Pr(>|t|)` < 0.001] <- "***"
+        dep_ptab[[i]]$`Pr(>|t|)` <- round(dep_ptab[[i]]$`Pr(>|t|)`,3) #3decimals
+        dep_ptab[[i]]$dep_d[2:15] <- dep_d[[i]]$d
+        dep_ptab[[i]]$dep_d[2:15] = round(dep_ptab[[i]]$dep_d[2:15], 3)  #3 decimals
+        dep_ptab[[i]]$dep_d[1] <- "NA"         #intercept
+} 
+```
+
+
+```{r Anx LME}
+# Define variables
+dVar = colnames(data)[grepl("^win_smri_vol_scs.*.z$", colnames(data)) & !grepl("smri_vol_scs_intracranialv", colnames(data))]
+
+
+anx_iVar <- c("win_smri_vol_scs_intracranialv.z", "age.z", "sexF", "raceF", 
+                    "puberty.z", "eduF","income.z", 
+                    "Anx","(1|siteF/famF)")
+
+no.dVar = length(dVar)
+anx_m <- as.list(1:no.dVar)
+anx_d <- as.list(1:no.dVar)
+anx_ptab <- data.frame(matrix(NA, nrow = 15, ncol = 7))     # Adjust nrow in ptab if number of iVar is changed
+names(anx_m) <- dVar
+names(anx_d) <- dVar
+string_form <- paste0(dVar, "~", paste0(anx_iVar, collapse = " + "))
+
+#for loop
+    for (i in 1:no.dVar) {
+        #print progress
+        print(paste("Running lmer for dependent variable:", dVar[i], "which is", i, "out of", no.dVar))
+        #store models in m
+        anx_m[[i]] <- lmer(string_form[i], data=data, na.action = "na.omit")
+        #cohen's d
+        anx_d[[i]] <- lme.dscore(anx_m[[i]],data=data,type="lme4") #Cohen's d
+        anx_ptab[[i]] <- as.data.frame(summary(anx_m[[i]])$coefficients)
+        anx_ptab[[i]]$sig[anx_ptab[[i]]$`Pr(>|t|)` < 0.1] <- "."
+        anx_ptab[[i]]$sig[anx_ptab[[i]]$`Pr(>|t|)` < 0.05] <- "*"
+        anx_ptab[[i]]$sig[anx_ptab[[i]]$`Pr(>|t|)` < 0.01] <- "**"
+        anx_ptab[[i]]$sig[anx_ptab[[i]]$`Pr(>|t|)` < 0.001] <- "***"
+        anx_ptab[[i]]$`Pr(>|t|)` <- round(anx_ptab[[i]]$`Pr(>|t|)`,3) #3decimals
+        anx_ptab[[i]]$anx_d[2:15] <- anx_d[[i]]$d
+        anx_ptab[[i]]$anx_d[2:15] = round(anx_ptab[[i]]$anx_d[2:15], 3)  #3 decimals
+        anx_ptab[[i]]$anx_d[1] <- "NA"         #intercept
+} 
+```
+
+```{r Mania LME}
+# Define variables
+dVar = colnames(data)[grepl("^win_smri_vol_scs.*.z$", colnames(data)) & !grepl("smri_vol_scs_intracranialv", colnames(data))]
+
+
+man_iVar <- c("win_smri_vol_scs_intracranialv.z", "age.z", "sexF", "raceF", 
+                    "puberty.z", "eduF","income.z", 
+                    "Man","(1|siteF/famF)")
+
+no.dVar = length(dVar)
+man_m <- as.list(1:no.dVar)
+man_d <- as.list(1:no.dVar)
+man_ptab <- data.frame(matrix(NA, nrow = 15, ncol = 7))     # Adjust nrow in ptab if number of iVar is changed
+names(man_m) <- dVar
+names(man_d) <- dVar
+string_form <- paste0(dVar, "~", paste0(man_iVar, collapse = " + "))
+
+#for loop
+    for (i in 1:no.dVar) {
+        #print progress
+        print(paste("Running lmer for dependent variable:", dVar[i], "which is", i, "out of", no.dVar))
+        #store models in m
+        man_m[[i]] <- lmer(string_form[i], data=data, na.action = "na.omit")
+        #cohen's d
+        man_d[[i]] <- lme.dscore(man_m[[i]],data=data,type="lme4") #Cohen's d
+        man_ptab[[i]] <- as.data.frame(summary(man_m[[i]])$coefficients)
+        man_ptab[[i]]$sig[man_ptab[[i]]$`Pr(>|t|)` < 0.1] <- "."
+        man_ptab[[i]]$sig[man_ptab[[i]]$`Pr(>|t|)` < 0.05] <- "*"
+        man_ptab[[i]]$sig[man_ptab[[i]]$`Pr(>|t|)` < 0.01] <- "**"
+        man_ptab[[i]]$sig[man_ptab[[i]]$`Pr(>|t|)` < 0.001] <- "***"
+        man_ptab[[i]]$`Pr(>|t|)` <- round(man_ptab[[i]]$`Pr(>|t|)`,3) #3decimals
+        man_ptab[[i]]$man_d[2:15] <- man_d[[i]]$d
+        man_ptab[[i]]$man_d[2:15] = round(man_ptab[[i]]$man_d[2:15], 3)  #3 decimals
+        man_ptab[[i]]$man_d[1] <- "NA"         #intercept
+} 
+```
+
+```{r SU LME}
+# Define variables
+dVar = colnames(data)[grepl("^win_smri_vol_scs.*.z$", colnames(data)) & !grepl("smri_vol_scs_intracranialv", colnames(data))]
+
+
+su_iVar <- c("win_smri_vol_scs_intracranialv.z", "age.z", "sexF", "raceF", 
+                    "puberty.z", "eduF","income.z", 
+                    "SU","(1|siteF/famF)")
+
+no.dVar = length(dVar)
+su_m <- as.list(1:no.dVar)
+su_d <- as.list(1:no.dVar)
+su_ptab <- data.frame(matrix(NA, nrow = 15, ncol = 7))     # Adjust nrow in ptab if number of iVar is changed
+names(su_m) <- dVar
+names(su_d) <- dVar
+su_string_form <- paste0(dVar, "~", paste0(su_iVar, collapse = " + "))
+
+#for loop
+    for (i in 1:no.dVar) {
+        #print progress
+        print(paste("Running lmer for dependent variable:", dVar[i], "which is", i, "out of", no.dVar))
+        #store models in m
+        su_m[[i]] <- lmer(su_string_form[i], data=data, na.action = "na.omit")
+        #cohen's d
+        su_d[[i]] <- lme.dscore(su_m[[i]],data=data,type="lme4") #Cohen's d
+        su_ptab[[i]] <- as.data.frame(summary(su_m[[i]])$coefficients)
+        su_ptab[[i]]$sig[su_ptab[[i]]$`Pr(>|t|)` < 0.1] <- "."
+        su_ptab[[i]]$sig[su_ptab[[i]]$`Pr(>|t|)` < 0.05] <- "*"
+        su_ptab[[i]]$sig[su_ptab[[i]]$`Pr(>|t|)` < 0.01] <- "**"
+        su_ptab[[i]]$sig[su_ptab[[i]]$`Pr(>|t|)` < 0.001] <- "***"
+        su_ptab[[i]]$`Pr(>|t|)` <- round(su_ptab[[i]]$`Pr(>|t|)`,3) #3decimals
+        su_ptab[[i]]$su_d[2:15] <- su_d[[i]]$d
+        su_ptab[[i]]$su_d[2:15] = round(su_ptab[[i]]$su_d[2:15], 3)  #3 decimals
+        su_ptab[[i]]$su_d[1] <- "NA"         #intercept
+} 
+```
+
+
+```{r Main Effects LME}
+# Define variables
+dVar = colnames(data)[grepl("^win_smri_vol_scs.*.z$", colnames(data)) & !grepl("smri_vol_scs_intracranialv", colnames(data))]
+
+main_iVar <- c("win_smri_vol_scs_intracranialv.z", "age.z", "sexF", "raceF", 
+                    "puberty.z", "eduF","income.z", 
+                    "Dep+Anx+Man+SU",
+                    "(1|siteF/famF)")
+
+no.dVar = length(dVar)
+main_m <- as.list(1:no.dVar)
+main_d <- as.list(1:no.dVar)
+main_ptab <- data.frame(matrix(NA, nrow = 18, ncol = 7))
+names(main_m) <- dVar
+names(main_d) <- dVar
+string_form <- paste0(dVar, "~", paste0(main_iVar, collapse = " + "))
+
+#for loop
+    for (i in 1:no.dVar) {
+        #print progress
+        print(paste("Running lmer for dependent variable:", dVar[i], "which is", i, "out of", no.dVar))
+        #store models in m
+        main_m[[i]] <- lmer(string_form[i], data=data, na.action = "na.omit")
+        #cohen's d
+        main_d[[i]] <- lme.dscore(main_m[[i]],data=data,type="lme4") #Cohen's d
+        main_ptab[[i]] <- as.data.frame(summary(main_m[[i]])$coefficients)
+        main_ptab[[i]]$sig[main_ptab[[i]]$`Pr(>|t|)` < 0.1] <- "."
+        main_ptab[[i]]$sig[main_ptab[[i]]$`Pr(>|t|)` < 0.05] <- "*"
+        main_ptab[[i]]$sig[main_ptab[[i]]$`Pr(>|t|)` < 0.01] <- "**"
+        main_ptab[[i]]$sig[main_ptab[[i]]$`Pr(>|t|)` < 0.001] <- "***"
+        main_ptab[[i]]$`Pr(>|t|)` <- round(main_ptab[[i]]$`Pr(>|t|)`,3) #3decimals
+        main_ptab[[i]]$main_d[2:18] <- main_d[[i]]$d
+        main_ptab[[i]]$main_d[2:18] = round(main_ptab[[i]]$main_d[2:18], 3)  #3 decimals
+        main_ptab[[i]]$main_d[1] <- "NA"         #intercept
+} 
+```
+
+
+```{r Interaction LME}
+# Define variables
+dVar = colnames(data)[grepl("^win_smri_vol_scs.*.z$", colnames(data)) & !grepl("smri_vol_scs_intracranialv", colnames(data))]
+
+int_iVar <- c("win_smri_vol_scs_intracranialv.z", "age.z", "sexF", "raceF", 
+                    "puberty.z", "eduF","income.z", 
+                    "Dep*Anx*Man*SU",
+                    "(1|siteF/famF)")
+
+no.dVar = length(dVar)
+int_m <- as.list(1:no.dVar)
+int_d <- as.list(1:no.dVar)
+int_ptab <- data.frame(matrix(NA, nrow = 28, ncol = 7))     # Adjust nrow in ptab if number of iVar is changed
+names(int_m) <- dVar
+names(int_d) <- dVar
+int_string_form <- paste0(dVar, "~", paste0(int_iVar, collapse = " + "))
+
+#for loop
+    for (i in 1:no.dVar) {
+        #print progress
+        print(paste("Running lmer for dependent variable:", dVar[i], "which is", i, "out of", no.dVar))
+        #store models in m
+        int_m[[i]] <- lmer(int_string_form[i], data=data, na.action = "na.omit")
+        #cohen's d
+        int_d[[i]] <- lme.dscore(int_m[[i]],data=data,type="lme4") #Cohen's d
+        int_ptab[[i]] <- as.data.frame(summary(int_m[[i]])$coefficients)
+        int_ptab[[i]]$sig[int_ptab[[i]]$`Pr(>|t|)` < 0.1] <- "."
+        int_ptab[[i]]$sig[int_ptab[[i]]$`Pr(>|t|)` < 0.05] <- "*"
+        int_ptab[[i]]$sig[int_ptab[[i]]$`Pr(>|t|)` < 0.01] <- "**"
+        int_ptab[[i]]$sig[int_ptab[[i]]$`Pr(>|t|)` < 0.001] <- "***"
+        int_ptab[[i]]$`Pr(>|t|)` <- round(int_ptab[[i]]$`Pr(>|t|)`,3) #3decimals
+        int_ptab[[i]]$int_d[2:28] <- int_d[[i]]$d
+        int_ptab[[i]]$int_d[2:28] = round(int_ptab[[i]]$int_d[2:28], 3)  #3 decimals
+        int_ptab[[i]]$int_d[1] <- "NA"         #intercept
+} 
+```
+
+Setup p Tables
+```{r}
+dep_tabp <- data.frame(matrix(NA, nrow = 1, ncol = length(dVar)))
+anx_tabp <- data.frame(matrix(NA, nrow = 1, ncol = length(dVar)))
+man_tabp <- data.frame(matrix(NA, nrow = 1, ncol = length(dVar)))
+su_tabp <- data.frame(matrix(NA, nrow = 1, ncol = length(dVar)))
+main_tabp <- data.frame(matrix(NA, nrow = 4, ncol = length(dVar)))
+int_tabp <- data.frame(matrix(NA, nrow = 10, ncol = length(dVar)))
+for (i in 1:no.dVar){
+  dep_tabp[[i]] <- as.numeric(dep_ptab[[i]]$'Pr(>|t|)'[15])
+  anx_tabp[[i]] <- as.numeric(anx_ptab[[i]]$'Pr(>|t|)'[15])
+  man_tabp[[i]] <- as.numeric(man_ptab[[i]]$'Pr(>|t|)'[15])
+  su_tabp[[i]] <- as.numeric(su_ptab[[i]]$'Pr(>|t|)'[15])
+  main_tabp[[i]] <- as.numeric(main_ptab[[i]]$'Pr(>|t|)'[15:18])
+  int_tabp[[i]] <- as.numeric(int_ptab[[i]]$'Pr(>|t|)'[15:24])
+}
+```
+
+Rerun total subcortical volume models
+```{r }
+#Rerunning total subcort gm volume without controlling for ICV
+
+#Depression
+scgv_dep <- lmer(win_smri_vol_scs_subcorticalgv.z ~ age.z + sexF + raceF + puberty.z + eduF + income.z + Dep + (1|siteF/famF), data=data, na.action = "na.omit")
+scgv_dep_co <- as.data.frame(summary(scgv_dep)$coefficients)
+
+#Anxiety
+scgv_anx <- lmer(win_smri_vol_scs_subcorticalgv.z ~ age.z + sexF + raceF + puberty.z + eduF + income.z + Anx + (1|siteF/famF), data=data, na.action = "na.omit")
+scgv_anx_co <- as.data.frame(summary(scgv_anx)$coefficients)
+
+#Mania
+scgv_man <- lmer(win_smri_vol_scs_subcorticalgv.z ~ age.z + sexF + raceF + puberty.z + eduF + income.z + Man + (1|siteF/famF), data=data, na.action = "na.omit")
+scgv_man_co <- as.data.frame(summary(scgv_man)$coefficients)
+
+#SU
+scgv_su <- lmer(win_smri_vol_scs_subcorticalgv.z ~ age.z + sexF + raceF + puberty.z + eduF + income.z + SU + (1|siteF/famF), data=data, na.action = "na.omit")
+scgv_su_co <- as.data.frame(summary(scgv_su)$coefficients)
+
+#Main Effects
+scgv_main <- lmer(win_smri_vol_scs_subcorticalgv.z ~ age.z + sexF + raceF + puberty.z + eduF + income.z + Dep + Anx + Man + SU + (1|siteF/famF), data=data, na.action = "na.omit")
+scgv_main_co <- as.data.frame(summary(scgv_main)$coefficients)
+
+#Interaction
+scgv_int <- lmer(win_smri_vol_scs_subcorticalgv.z ~ age.z + sexF + raceF + puberty.z + eduF + income.z + Dep*Anx*Man*SU + (1|siteF/famF), data=data, na.action = "na.omit")
+scgv_int_co <- as.data.frame(summary(scgv_int)$coefficients)
+```
+
+
+```{r Data Compile}
+
+pDF <-list(dep_tabp,anx_tabp,man_tabp,su_tabp,main_tabp,int_tabp)
+ROIs <- c('naccL','naccR','amygL','amygR','caudL','caudR','hippL','hippR',
+          'pallL','pallR','putmL','putmR','thalL','thalR','subcort')
+pVals <- data.frame(matrix(NA,nrow=18,ncol=15))
+colnames(pVals)<- ROIs
+rownames(pVals)<- c('Dep_Ind','Anx_Ind','Man_Ind','SU_Ind','Dep_Main','Anx_Main','Man_Main','SU_Main',
+                    'Dep_Int','Anx_Int','Man_Int','SU_Int','Dep*Anx','Dep*Man','Anx*Man','Dep*SU','Anx*SU','Man*SU')
+
+#Compile p values
+for (i in 1:15) {
+  pVals[1,i]<-pDF[[1]][i]
+  pVals[2,i]<-pDF[[2]][i]
+  pVals[3,i]<-pDF[[3]][i]
+  pVals[4,i]<-pDF[[4]][i]
+  pVals[5:8,i]<-pDF[[5]][i]
+  pVals[9:18,i]<-pDF[[6]][i]
+}
+
+#Replace total subcort p values with values not controlling for ICV
+pVals[1,15] <- scgv_dep_co[14,5]
+pVals[2,15] <- scgv_anx_co[14,5]
+pVals[3,15] <- scgv_man_co[14,5]
+pVals[4,15] <- scgv_su_co[14,5]
+pVals[5,15] <- scgv_main_co[14,5]
+pVals[6,15] <- scgv_main_co[15,5]
+pVals[7,15] <- scgv_main_co[16,5]
+pVals[8,15] <- scgv_main_co[17,5]
+pVals[9,15] <- scgv_int_co[14,5]
+pVals[10,15] <- scgv_int_co[15,5]
+pVals[11,15] <- scgv_int_co[16,5]
+pVals[12,15] <- scgv_int_co[17,5]
+pVals[13,15] <- scgv_int_co[18,5]
+pVals[14,15] <- scgv_int_co[19,5]
+pVals[15,15] <- scgv_int_co[20,5]
+pVals[16,15] <- scgv_int_co[21,5]
+pVals[17,15] <- scgv_int_co[22,5]
+pVals[18,15] <- scgv_int_co[23,5]
+
+
+#No interaction terms are significant, these models will no longer be considered
+#Remove interaction items
+pVals <- pVals[1:8,]
+#BH Correction
+pAdj <- data.frame(matrix(NA,nrow=8,ncol=15))
+rownames(pAdj)<- c('Dep_Ind','Anx_Ind','Man_Ind','SU_Ind','Dep_Main','Anx_Main','Man_Main','SU_Main')
+colnames(pAdj)<- ROIs
+for (i in 1:15) {
+  pAdj[,i] <- round(p.adjust(pVals[,i], "BH"), 3)
+}
+pAdj
+
+#write.csv(pVals,'pVals.csv')
+write.csv(pAdj,'Adj_pVals_Clean.csv')
+```
