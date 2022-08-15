@@ -46,6 +46,7 @@ if(!"glmmTMB" %in% .packages())   library(glmmTMB)
 ```
 
 ```{r Get Data}
+setwd('C:/Users/mmatt/Desktop/Projects/psychopathology-risk/PsyRisk/Revisions')
 data <- read.csv('lmeData.csv')
 ```
 
@@ -275,13 +276,13 @@ dVar = colnames(data)[grepl("^win_smri_vol_scs.*.z$", colnames(data)) & !grepl("
 
 int_iVar <- c("win_smri_vol_scs_intracranialv.z", "age.z", "sexF", "raceF", 
                     "puberty.z", "eduF","income.z", 
-                    "Dep*Anx*Man*SU",
+                    "((Dep + Anx + Man + SU)^2)",
                     "(1|siteF/famF)")
 
 no.dVar = length(dVar)
 int_m <- as.list(1:no.dVar)
 int_d <- as.list(1:no.dVar)
-int_ptab <- data.frame(matrix(NA, nrow = 28, ncol = 7))     # Adjust nrow in ptab if number of iVar is changed
+int_ptab <- data.frame(matrix(NA, nrow = 24, ncol = 7))     # Adjust nrow in ptab if number of iVar is changed
 names(int_m) <- dVar
 names(int_d) <- dVar
 int_string_form <- paste0(dVar, "~", paste0(int_iVar, collapse = " + "))
@@ -300,8 +301,8 @@ int_string_form <- paste0(dVar, "~", paste0(int_iVar, collapse = " + "))
         int_ptab[[i]]$sig[int_ptab[[i]]$`Pr(>|t|)` < 0.01] <- "**"
         int_ptab[[i]]$sig[int_ptab[[i]]$`Pr(>|t|)` < 0.001] <- "***"
         int_ptab[[i]]$`Pr(>|t|)` <- round(int_ptab[[i]]$`Pr(>|t|)`,3) #3decimals
-        int_ptab[[i]]$int_d[2:28] <- int_d[[i]]$d
-        int_ptab[[i]]$int_d[2:28] = round(int_ptab[[i]]$int_d[2:28], 3)  #3 decimals
+        int_ptab[[i]]$int_d[2:24] <- int_d[[i]]$d
+        int_ptab[[i]]$int_d[2:24] = round(int_ptab[[i]]$int_d[2:24], 3)  #3 decimals
         int_ptab[[i]]$int_d[1] <- "NA"         #intercept
 } 
 ```
@@ -349,20 +350,19 @@ scgv_main <- lmer(win_smri_vol_scs_subcorticalgv.z ~ age.z + sexF + raceF + pube
 scgv_main_co <- as.data.frame(summary(scgv_main)$coefficients)
 
 #Interaction
-scgv_int <- lmer(win_smri_vol_scs_subcorticalgv.z ~ age.z + sexF + raceF + puberty.z + eduF + income.z + Dep*Anx*Man*SU + (1|siteF/famF), data=data, na.action = "na.omit")
+scgv_int <- lmer(win_smri_vol_scs_subcorticalgv.z ~ age.z + sexF + raceF + puberty.z + eduF + income.z + ((Dep + Anx + Man + SU)^2) + (1|siteF/famF), data=data, na.action = "na.omit")
 scgv_int_co <- as.data.frame(summary(scgv_int)$coefficients)
 ```
 
 
 ```{r Data Compile}
-
 pDF <-list(dep_tabp,anx_tabp,man_tabp,su_tabp,main_tabp,int_tabp)
 ROIs <- c('naccL','naccR','amygL','amygR','caudL','caudR','hippL','hippR',
           'pallL','pallR','putmL','putmR','thalL','thalR','subcort')
 pVals <- data.frame(matrix(NA,nrow=18,ncol=15))
 colnames(pVals)<- ROIs
 rownames(pVals)<- c('Dep_Ind','Anx_Ind','Man_Ind','SU_Ind','Dep_Main','Anx_Main','Man_Main','SU_Main',
-                    'Dep_Int','Anx_Int','Man_Int','SU_Int','Dep*Anx','Dep*Man','Anx*Man','Dep*SU','Anx*SU','Man*SU')
+                    'Dep_Int','Anx_Int','Man_Int','SU_Int','Dep*Anx','Dep*Man','Dep*SU','Anx*Man','Anx*SU','Man*SU')
 
 #Compile p values
 for (i in 1:15) {
@@ -394,9 +394,20 @@ pVals[16,15] <- scgv_int_co[21,5]
 pVals[17,15] <- scgv_int_co[22,5]
 pVals[18,15] <- scgv_int_co[23,5]
 
+write.csv(pVals,'pVals.csv')
 
-#No interaction terms are significant, these models will no longer be considered
-#Remove interaction items
+#Family wise BH Correction, per model set
+pAdj_ind <- pVals[1:4,]
+  
+  data.frame(matrix(NA,nrow=4,ncol=15))
+rownames(pAdj_ind)<- rownames(pVals)[1:4]
+colnames(pAdj_ind)<- ROIs
+for (i in 1:15) {
+  pAdj_ind[,i] <- round(p.adjust(pAdj_ind[,i], "BH"), 3)
+}
+pAdj_all
+
+#Family wise BH Correction, just take main and interaction effects
 pVals <- pVals[1:8,]
 #BH Correction
 pAdj <- data.frame(matrix(NA,nrow=8,ncol=15))
@@ -410,3 +421,62 @@ pAdj
 #write.csv(pVals,'pVals.csv')
 write.csv(pAdj,'Adj_pVals_Clean.csv')
 ```
+
+```{r Get Results}
+#Table 1 Values - Independent effects
+depVals <- as.data.frame(matrix(NA,nrow=15,ncol=2))
+colnames(depVals) <- c('t','d')
+for (i in 1:15){
+  depVals[i,1] <- round(as.data.frame(summary(dep_m[[i]])[10])[15,4],2)
+  depVals[i,2] <- round(dep_d[[i]]$d[14],2)
+}
+anxVals <- as.data.frame(matrix(NA,nrow=15,ncol=2))
+colnames(anxVals) <- c('t','d')
+for (i in 1:15){
+  anxVals[i,1] <- round(as.data.frame(summary(anx_m[[i]])[10])[15,4],2)
+  anxVals[i,2] <- round(anx_d[[i]]$d[14],2)
+}
+manVals <- as.data.frame(matrix(NA,nrow=15,ncol=2))
+colnames(manVals) <- c('t','d')
+for (i in 1:15){
+  manVals[i,1] <- round(as.data.frame(summary(man_m[[i]])[10])[15,4],2)
+  manVals[i,2] <- round(man_d[[i]]$d[14],2)
+}
+suVals <- as.data.frame(matrix(NA,nrow=15,ncol=2))
+colnames(suVals) <- c('t','d')
+for (i in 1:15){
+  suVals[i,1] <- round(as.data.frame(summary(su_m[[i]])[10])[15,4],2)
+  suVals[i,2] <- round(su_d[[i]]$d[14],2)
+}
+tab1 <- cbind(depVals,anxVals,manVals,suVals)
+write.csv(tab1,"Table1_Values.csv")
+
+#Table 2 Values - Main effects
+depVals2 <- as.data.frame(matrix(NA,nrow=15,ncol=2))
+colnames(depVals2) <- c('t','d')
+for (i in 1:15){
+  depVals2[i,1] <- round(as.data.frame(summary(main_m[[i]])[10])[15,4],2)
+  depVals2[i,2] <- round(main_d[[i]]$d[14],2)
+}
+anxVals2 <- as.data.frame(matrix(NA,nrow=15,ncol=2))
+colnames(anxVals2) <- c('t','d')
+for (i in 1:15){
+  anxVals2[i,1] <- round(as.data.frame(summary(main_m[[i]])[10])[16,4],2)
+  anxVals2[i,2] <- round(main_d[[i]]$d[15],2)
+}
+manVals2 <- as.data.frame(matrix(NA,nrow=15,ncol=2))
+colnames(manVals2) <- c('t','d')
+for (i in 1:15){
+  manVals2[i,1] <- round(as.data.frame(summary(main_m[[i]])[10])[17,4],2)
+  manVals2[i,2] <- round(main_d[[i]]$d[16],2)
+}
+suVals2 <- as.data.frame(matrix(NA,nrow=15,ncol=2))
+colnames(suVals2) <- c('t','d')
+for (i in 1:15){
+  suVals2[i,1] <- round(as.data.frame(summary(main_m[[i]])[10])[18,4],2)
+  suVals2[i,2] <- round(main_d[[i]]$d[17],2)
+}
+tab2 <- cbind(depVals2,anxVals2,manVals2,suVals2)
+write.csv(tab2,"Table2_Values.csv")
+```
+

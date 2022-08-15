@@ -36,12 +36,11 @@ subcort = c('smri_vol_scs_aal', 'smri_vol_scs_aar', 'smri_vol_scs_amygdalalh', '
            'smri_vol_scs_tplh', 'smri_vol_scs_tprh', 'smri_vol_scs_intracranialv', 'smri_vol_scs_subcorticalgv')
 
 #parental psychopathology 
-maternal = c('famhx_ss_moth_prob_dprs_p','famhx_ss_moth_prob_alc_p', 'famhx_ss_moth_prob_dg_p', 
-            'famhx_ss_moth_prob_ma_p', 'famhx_ss_moth_prob_nrv_p')
-paternal = c('famhx_ss_fath_prob_dprs_p','famhx_ss_fath_prob_alc_p', 'famhx_ss_fath_prob_dg_p', 
-            'famhx_ss_fath_prob_ma_p', 'famhx_ss_fath_prob_nrv_p')
-momdad = c('famhx_ss_momdad_dprs_p','famhx_ss_momdad_alc_p', 'famhx_ss_momdad_dg_p', 
-          'famhx_ss_momdad_ma_p', 'famhx_ss_momdad_nrv_p')
+any_hist <- c('fam_history_6_yes_no','fam_history_7_yes_no','fam_history_10_yes_no','famhx_4_p','fam_history_5_yes_no')
+maternal = c('fam_history_q6d_depression','famhx_4d_p___0', 'fam_history_q5d_drugs___0', 
+            'fam_history_q7d_mania', 'fam_history_q10d_nerves')
+paternal = c('fam_history_q6a_depression','famhx4a_p___0', 'fam_history_q5a_drugs___0', 
+            'fam_history_q7a_mania', 'fam_history_q10a_nerves')
 
 #exclusion criteria
 exclude = c("iqc_t1_ok_ser", "fsqc_qc", "mrif_score", "famhx_ss_momdad_vs_p")
@@ -62,7 +61,7 @@ ksads = c("ksads_1_843_p", "ksads_1_845_p", "ksads_1_844_p", "ksads_1_840_p", "k
            "ksads_20_880_p", "ksads_20_871_p", "ksads_21_921_p", "ksads_21_922_p")
 
 #concatenate elements of interest
-elem_int = c(subcort, maternal, paternal, momdad, demo, 
+elem_int = c(subcort, maternal, paternal, any_hist, demo, 
              puberty, exclude, ksads)
 
 
@@ -110,10 +109,12 @@ for (i in 1:length(struct_inc)){
   struct_subset[[i]] <- fread(struct_inc[i], select = elem_match_cond_cond)
 }
 
-
+#One structure does not have 'eventname' element
+struct_subset[[8]]$eventname <- struct_subset[[1]]$eventname
 #Merge all structures
 merged_df <- Reduce(function(...) merge(..., by=c('subjectkey','eventname'), 
                                         all=TRUE), struct_subset) 
+merged_df <- unique(merged_df)
 #merge common variables
 common_elems <- read.delim2("acspsw03.txt", header = TRUE)
 common_elems_sub <- common_elems[common]
@@ -142,33 +143,20 @@ merged_df_t1 <- subset(merged_df,eventname == 'baseline_year_1_arm_1')
 merged_df_t1_incl <- subset(merged_df_t1, iqc_t1_ok_ser > 0)
 merged_df_t1_incl <- subset(merged_df_t1_incl, fsqc_qc > 0)
 merged_df_t1_incl <- subset(merged_df_t1_incl, mrif_score > 0)
-merged_df_t1_incl <- subset(merged_df_t1_incl, famhx_ss_momdad_vs_p == 0)
+
 #Excluding KSADS dx..
 #ksads_cols <- merged_df_t1_incl[ , grep("ksad", colnames(merged_df_t1_incl))]#Find colnames that contain 'ksad'
-merged_df_t1_incl[, "ksads_max"] <- apply(merged_df_t1_incl[,19:92], 1, max,na.rm=TRUE) #If any dx, max = 1
+merged_df_t1_incl[, "ksads_max"] <- apply(merged_df_t1_incl[,4:77], 1, max,na.rm=TRUE) #If any dx, max = 1
 merged_df_t1_incl <- subset(merged_df_t1_incl, ksads_max == 0) #Exclude any dx
+merged_df_t1_incl <- subset(merged_df_t1_incl, famhx_ss_momdad_vs_p == 0)
 
-
-#OPTIONAL: Clean up df by removing exclusion variables after using them
 clean_df <- merged_df_t1_incl
 clean_df[,exclude] <- list(NULL)
 clean_df$ksads_max <- list(NULL)
 clean_df[,ksads] <- list(NULL)
 
-#OPTIONAL: Remove missing data
 #Remove if missing ICV
-clean_df <- drop_na(clean_df,smri_vol_scs_intracranialv) #1 individual
-#Remove if missing 4+/5 parental histories of interest
-famhx_cases <- clean_df[,c('subjectkey','famhx_ss_momdad_dprs_p','famhx_ss_momdad_alc_p',
-                                                  'famhx_ss_momdad_dg_p','famhx_ss_momdad_ma_p',
-                                                  'famhx_ss_momdad_nrv_p')]
-famhx_cases[famhx_cases == ""] <- NA 
-famhx_NA <- apply(famhx_cases, MARGIN = 1, function(x) sum(is.na(x)))
-table(famhx_NA)
-#get logical if sum NA across famhx vars < 4
-famhx_NA_g4 <- famhx_NA < 4
-#exclude 
-clean_df <- clean_df[famhx_NA_g4,]
+clean_df <- drop_na(clean_df,smri_vol_scs_intracranialv)
 
 #Data cleaned and ready to use!!
-write.csv(clean_df,'C:/Users/mmatt/Desktop/Projects/psychopathology-risk/PsyRisk/PsyRiskLME/ABCD_ParRiskData.csv')
+write.csv(clean_df,'C:/Users/mmatt/Desktop/Projects/psychopathology-risk/PsyRisk/Revisions/ABCD_ParRiskData.csv')

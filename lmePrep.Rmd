@@ -50,7 +50,7 @@ if(!"glmmTMB" %in% .packages())   library(glmmTMB)
 ```
 
 ```{r Set WD and input Data}
-setwd('C:/Users/mmatt/Desktop/Projects/psychopathology-risk/PsyRisk/PsyRiskLME')
+setwd('C:/Users/mmatt/Desktop/Projects/psychopathology-risk/PsyRisk/Revisions')
 df <- read.csv('ABCD_ParRiskData.csv')
 ```
 
@@ -68,16 +68,16 @@ df$age <- as.numeric(df$interview_age)
 df$puberty <- as.numeric(df$puberty)
 df$income <-  as.numeric(df$demo_comb_income_v2)
 
-#Standardize
-df[c("age.z","puberty.z","income.z")] <- scale(df[c("age","puberty","income")])
-
 #Make sex 0 1 factor; M = 0
 df <- df %>%
       mutate(sex = ifelse(sex == "M",0,1))
+
+#Standardize
+df[c("age.z","puberty.z","income.z","sex.z")] <- scale(df[c("age","puberty","income","sex")])
+
 ```
 
 ```{r Standardize sMRI Variables}
-
 #create new df with smri variables and add win prefix to column names 
 smri <- df[grepl("^smri", colnames(df))] 
 colnames(smri) <-paste("win",colnames(smri),sep="_") 
@@ -121,28 +121,49 @@ dfAll <- cbind(df, df2)
 ```
 
 
-
 ```{r Parental History variables}
-#Easier parental history names; Center
-dfAll$Dep <- round(scale(dfAll$famhx_ss_momdad_dprs_p,scale=FALSE),5)
-dfAll$Man <- round(scale(dfAll$famhx_ss_momdad_ma_p,scale=FALSE),5)
-dfAll$SU <- pmax(dfAll$famhx_ss_momdad_alc_p,dfAll$famhx_ss_momdad_dg_p)
-dfAll$SU <- round(scale(dfAll$SU,scale=FALSE),5)
-dfAll$Anx <- round(scale(dfAll$famhx_ss_momdad_nrv_p,scale=FALSE),5)
+# if family history is 0, then set maternal and paternal to 0
+dfAll$fam_history_q6a_depression[dfAll$fam_history_6_yes_no==0] <- 0 
+dfAll$fam_history_q6d_depression[dfAll$fam_history_6_yes_no==0] <- 0
+dfAll$fam_history_q7a_mania[dfAll$fam_history_7_yes_no==0] <- 0 
+dfAll$fam_history_q7d_mania[dfAll$fam_history_7_yes_no==0] <- 0
+dfAll$famhx_4a_p___0[dfAll$famhx_4_p==0] <- 0 
+dfAll$famhx_4d_p___0[dfAll$famhx_4_p==0] <- 0
+dfAll$fam_history_q5a_drugs___0[dfAll$fam_history_5_yes_no==0] <- 0 
+dfAll$fam_history_q5d_drugs___0[dfAll$fam_history_5_yes_no==0] <- 0
+dfAll$fam_history_q10a_nerves[dfAll$fam_history_10_yes_no==0] <- 0 
+dfAll$fam_history_q10d_nerves[dfAll$fam_history_10_yes_no==0] <- 0
 
 #Easier MATERNAL history names; Center
-dfAll$MDep <- round(scale(dfAll$famhx_ss_moth_prob_dprs_p,scale=FALSE),5)
-dfAll$MMan <- round(scale(dfAll$famhx_ss_moth_prob_ma_p,scale=FALSE),5)
-dfAll$MSU <- pmax(dfAll$famhx_ss_moth_prob_alc_p,dfAll$famhx_ss_moth_prob_dg)
+dfAll$MDep <- round(scale(dfAll$fam_history_q6d_depression,scale=FALSE),5)
+dfAll$MMan <- round(scale(dfAll$fam_history_q7d_mania,scale=FALSE),5)
+dfAll$MSU <- pmax(dfAll$famhx_4d_p___0,dfAll$fam_history_q5d_drugs___0)
 dfAll$MSU <- round(scale(dfAll$MSU,scale=FALSE),5)
-dfAll$MAnx <- round(scale(dfAll$famhx_ss_moth_prob_nrv_p,scale=FALSE),5)
+dfAll$MAnx <- round(scale(dfAll$fam_history_q10d_nerves,scale=FALSE),5)
 
 #Easier PATERNAL history names; Center
-dfAll$PDep <- round(scale(dfAll$famhx_ss_fath_prob_dprs_p,scale=FALSE),5)
-dfAll$PMan <- round(scale(dfAll$famhx_ss_fath_prob_ma_p,scale=FALSE),5)
-dfAll$PSU <- pmax(dfAll$famhx_ss_fath_prob_alc_p,dfAll$famhx_ss_fath_prob_dg)
+dfAll$PDep <- round(scale(dfAll$fam_history_q6a_depression,scale=FALSE),5)
+dfAll$PMan <- round(scale(dfAll$fam_history_q7a_mania,scale=FALSE),5)
+dfAll$PSU <- pmax(dfAll$famhx4a_p___0,dfAll$fam_history_q5a_drugs___0)
 dfAll$PSU <- round(scale(dfAll$PSU,scale=FALSE),5)
-dfAll$PAnx <- round(scale(dfAll$famhx_ss_fath_prob_nrv_p,scale=FALSE),5)
+dfAll$PAnx <- round(scale(dfAll$fam_history_q10a_nerves,scale=FALSE),5)
+
+#Create either parent variable, set NAs
+dfAll$Dep <- (rowSums(dfAll[,c("MDep","PDep")],na.rm = T) >0)*1
+dfAll$Dep[is.na(dfAll$MDep) & is.na(dfAll$PDep)] <- NA
+dfAll$Dep <- round(scale(dfAll$Dep,scale=FALSE),5)
+
+dfAll$Man <- (rowSums(dfAll[,c("MMan","PMan")],na.rm = T) >0)*1
+dfAll$Man[is.na(dfAll$MMan) & is.na(dfAll$PMan)] <- NA
+dfAll$Man <- round(scale(dfAll$Man,scale=FALSE),5)
+
+dfAll$SU <- (rowSums(dfAll[,c("MSU","PSU")],na.rm = T) >0)*1
+dfAll$SU[is.na(dfAll$MSU) & is.na(dfAll$PSU)] <- NA
+dfAll$SU <- round(scale(dfAll$SU,scale=FALSE),5)
+
+dfAll$Anx <- (rowSums(dfAll[,c("MAnx","PAnx")],na.rm = T) >0)*1
+dfAll$Anx[is.na(dfAll$MAnx) & is.na(dfAll$PAnx)] <- NA
+dfAll$Anx <- round(scale(dfAll$Anx,scale=FALSE),5)
 ```
 
 
@@ -150,3 +171,38 @@ dfAll$PAnx <- round(scale(dfAll$famhx_ss_fath_prob_nrv_p,scale=FALSE),5)
 #Create df
 write.csv(dfAll,'lmeData.csv')
 ```
+
+```{r Compare to old data}
+df2 <- read.csv('C:/Users/mmatt/Desktop/Projects/psychopathology-risk/PsyRisk/PsyRiskLME/lmeData.csv')
+
+tableComp <- as.data.frame(matrix(nrow=12,ncol=2))
+colnames(tableComp) <- c('new','old')
+rownames(tableComp) <- c('MDep','PDep','Dep','MSU','PSU','SU','MAnx','PAnx','Anx','MMan','PMan','Man')
+
+tableComp[1,1] <- table(dfAll$MDep)[2]
+tableComp[2,1] <- table(dfAll$PDep)[2]
+tableComp[3,1] <- table(dfAll$Dep)[2]
+tableComp[4,1] <- table(dfAll$MSU)[2]
+tableComp[5,1] <- table(dfAll$PSU)[2]
+tableComp[6,1] <- table(dfAll$SU)[2]
+tableComp[7,1] <- table(dfAll$MAnx)[2]
+tableComp[8,1] <- table(dfAll$PAnx)[2]
+tableComp[9,1] <- table(dfAll$Anx)[2]
+tableComp[10,1] <- table(dfAll$MMan)[2]
+tableComp[11,1] <- table(dfAll$PMan)[2]
+tableComp[12,1] <- table(dfAll$Man)[2]
+
+tableComp[1,2] <- table(df2$MDep)[2]
+tableComp[2,2] <- table(df2$PDep)[2]
+tableComp[3,2] <- table(df2$Dep)[2]
+tableComp[4,2] <- table(df2$MSU)[2]
+tableComp[5,2] <- table(df2$PSU)[2]
+tableComp[6,2] <- table(df2$SU)[2]
+tableComp[7,2] <- table(df2$MAnx)[2]
+tableComp[8,2] <- table(df2$PAnx)[2]
+tableComp[9,2] <- table(df2$Anx)[2]
+tableComp[10,2] <- table(df2$MMan)[2]
+tableComp[11,2] <- table(df2$PMan)[2]
+tableComp[12,2] <- table(df2$Man)[2]
+```
+
